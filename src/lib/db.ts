@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import Database from 'better-sqlite3';
 import { supabase, useSupabase } from './supabaseClient';
 import type { SheetState } from './sheet';
@@ -51,9 +52,42 @@ async function queryPostgres<T = unknown>(text: string, values: unknown[] = []) 
 }
 
 function getDatabasePath() {
+  // Allow overriding the data directory with an env var for special hosts
+  const configured = process.env.DATA_DIR?.trim();
+  if (configured) {
+    if (!fs.existsSync(configured)) {
+      try {
+        fs.mkdirSync(configured, { recursive: true });
+      } catch (err) {
+        console.error('Failed to create DATA_DIR', configured, err);
+      }
+    }
+
+    return path.join(configured, 'diet-studio.db');
+  }
+
+  // In serverless environments (Vercel/AWS Lambda) the project folder is read-only.
+  // Use a writable temp directory instead to avoid ENOENT when mkdir '/var/task/data'.
+  const isServerless = Boolean(process.env.VERCEL === '1' || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+  if (isServerless) {
+    const tmpData = path.join(os.tmpdir(), 'gestione-diete-data');
+    try {
+      if (!fs.existsSync(tmpData)) fs.mkdirSync(tmpData, { recursive: true });
+      return path.join(tmpData, 'diet-studio.db');
+    } catch (err) {
+      console.error('Failed to create tmp data dir', tmpData, err);
+      // Fall back to in-memory SQLite if tmp dir creation fails
+      return ':memory:';
+    }
+  }
+
   const dataDir = path.join(process.cwd(), 'data');
   if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+    } catch (err) {
+      console.error('Failed to create data dir', dataDir, err);
+    }
   }
 
   return path.join(dataDir, 'diet-studio.db');
