@@ -1,6 +1,6 @@
 "use client";
 
-import { createEmptySheet, SheetState, MealColumns, fieldLabel, mealFieldOrder } from "../../lib/sheet";
+import { createEmptySheet, createInitialSheet, SheetState, MealColumns, fieldLabel, mealFieldOrder } from "../../lib/sheet";
 import { PrintableSheet } from "../../components/Printable";
 import { useEffect, useState } from "react";
 import Link from "next/link";

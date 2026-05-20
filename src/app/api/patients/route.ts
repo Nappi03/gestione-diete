@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const patients = listPatients();
+    const patients = await listPatients();
     return Response.json({ patients });
   } catch (error) {
     console.error('patients GET error', error);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const patient = createPatient(firstName, lastName);
+    const patient = await createPatient(firstName, lastName);
     return Response.json({ patient }, { status: 201 });
   } catch (error) {
     console.error('patients POST error', error);
@@ -49,7 +49,7 @@ export async function PATCH(request: Request) {
       return Response.json({ error: 'firstName and lastName are required' }, { status: 400 });
     }
 
-    const patient = updatePatient(patientId, firstName, lastName);
+    const patient = await updatePatient(patientId, firstName, lastName);
     if (!patient) {
       return Response.json({ error: 'Patient not found' }, { status: 404 });
     }
@@ -75,7 +75,7 @@ export async function DELETE(request: Request) {
       return Response.json({ error: 'patientId must be a positive integer' }, { status: 400 });
     }
 
-    const deleted = deletePatient(patientId);
+    const deleted = await deletePatient(patientId);
     if (!deleted) {
       return Response.json({ error: 'Patient not found' }, { status: 404 });
     }

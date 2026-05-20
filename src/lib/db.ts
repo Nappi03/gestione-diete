@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { supabase, useSupabase } from './supabaseClient';
 import type { SheetState } from './sheet';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { Pool } = require('pg') as any;
 
 type PatientRow = {
   id: number;
@@ -21,6 +24,31 @@ type DietRow = {
 };
 
 const globalForDb = globalThis as unknown as { dietDb?: Database.Database };
+const globalForPg = globalThis as unknown as { dietPgPool?: any };
+
+const hasPostgresConnection = Boolean(process.env.DATABASE_URL);
+
+function getPgPool() {
+  if (!hasPostgresConnection) {
+    return null;
+  }
+
+  if (!globalForPg.dietPgPool) {
+    globalForPg.dietPgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+  }
+
+  return globalForPg.dietPgPool;
+}
+
+async function queryPostgres<T = unknown>(text: string, values: unknown[] = []) {
+  const pool = getPgPool();
+  if (!pool) {
+    return null;
+  }
+
+  const result = await pool.query(text, values);
+  return result as { rows: T[]; rowCount: number };
+}
 
 function getDatabasePath() {
   const dataDir = path.join(process.cwd(), 'data');
@@ -147,7 +175,38 @@ export function getDb() {
   return db;
 }
 
-export function listPatients() {
+
+
+export async function listPatients() {
+  if (hasPostgresConnection) {
+    const result = await queryPostgres<PatientRow>(
+      `SELECT id, first_name, last_name, created_at
+       FROM patients
+       ORDER BY last_name ASC, first_name ASC`,
+    );
+
+    return (result?.rows ?? []).map((row: PatientRow) => ({
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      createdAt: row.created_at,
+    }));
+  }
+
+  if (useSupabase && supabase) {
+    const { data, error } = await supabase
+      .from('patients')
+      .select('id, first_name, last_name, created_at')
+      .order('last_name', { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      createdAt: row.created_at,
+    }));
+  }
+
   const db = getDb();
   const rows = db
     .prepare(
@@ -165,7 +224,45 @@ export function listPatients() {
   }));
 }
 
-export function createPatient(firstName: string, lastName: string) {
+export async function createPatient(firstName: string, lastName: string) {
+  if (hasPostgresConnection) {
+    const result = await queryPostgres<PatientRow>(
+      `INSERT INTO patients (first_name, last_name)
+       VALUES ($1, $2)
+       RETURNING id, first_name, last_name, created_at`,
+      [firstName.trim(), lastName.trim()],
+    );
+
+    const patient = result?.rows[0];
+    if (!patient) {
+      throw new Error('Failed to create patient');
+    }
+
+    return {
+      id: patient.id,
+      firstName: patient.first_name,
+      lastName: patient.last_name,
+      createdAt: patient.created_at,
+    };
+  }
+
+  if (useSupabase && supabase) {
+    const { data, error } = await supabase
+      .from('patients')
+      .insert({ first_name: firstName.trim(), last_name: lastName.trim() })
+      .select()
+      .limit(1)
+      .single();
+    if (error) throw error;
+    const row = data as any;
+    return {
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      createdAt: row.created_at,
+    };
+  }
+
   const db = getDb();
   const result = db
     .prepare(
@@ -190,7 +287,49 @@ export function createPatient(firstName: string, lastName: string) {
   };
 }
 
-export function updatePatient(patientId: number, firstName: string, lastName: string) {
+export async function updatePatient(patientId: number, firstName: string, lastName: string) {
+  if (hasPostgresConnection) {
+    const result = await queryPostgres<PatientRow>(
+      `UPDATE patients
+       SET first_name = $1,
+           last_name = $2
+       WHERE id = $3
+       RETURNING id, first_name, last_name, created_at`,
+      [firstName.trim(), lastName.trim(), patientId],
+    );
+
+    const patient = result?.rows[0];
+    if (!patient) {
+      return null;
+    }
+
+    return {
+      id: patient.id,
+      firstName: patient.first_name,
+      lastName: patient.last_name,
+      createdAt: patient.created_at,
+    };
+  }
+
+  if (useSupabase && supabase) {
+    const { data, error } = await supabase
+      .from('patients')
+      .update({ first_name: firstName.trim(), last_name: lastName.trim() })
+      .eq('id', patientId)
+      .select()
+      .limit(1)
+      .single();
+    if (error) throw error;
+    const row = data as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      createdAt: row.created_at,
+    };
+  }
+
   const db = getDb();
   db.prepare(
     `UPDATE patients
@@ -218,21 +357,99 @@ export function updatePatient(patientId: number, firstName: string, lastName: st
   };
 }
 
-export function deletePatient(patientId: number) {
+export async function deletePatient(patientId: number) {
+  if (hasPostgresConnection) {
+    const result = await queryPostgres(
+      `DELETE FROM patients WHERE id = $1`,
+      [patientId],
+    );
+
+    return Boolean(result && result.rowCount && result.rowCount > 0);
+  }
+
+  if (useSupabase && supabase) {
+    const { error } = await supabase.from('patients').delete().eq('id', patientId);
+    if (error) throw error;
+    return true;
+  }
+
   const db = getDb();
   const result = db.prepare(`DELETE FROM patients WHERE id = ?`).run(patientId);
   return result.changes > 0;
 }
 
-export function saveDietForControlDate(
+export async function saveDietForControlDate(
   patientId: number,
   controlDate: string,
   weekTitle: string,
   sheet: SheetState,
 ) {
-  const db = getDb();
   const serialized = JSON.stringify(sheet);
   const normalizedWeekTitle = weekTitle.trim() || String(sheet.weekTitle ?? '').trim();
+
+  if (hasPostgresConnection) {
+    const result = await queryPostgres<DietRow>(
+      `INSERT INTO diets (patient_id, control_date, week_title, sheet_json, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT (patient_id, control_date, week_title)
+       DO UPDATE SET
+         sheet_json = EXCLUDED.sheet_json,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING id, patient_id, control_date, week_title, sheet_json, created_at, updated_at`,
+      [patientId, controlDate, normalizedWeekTitle, serialized],
+    );
+
+    const row = result?.rows[0];
+    if (!row) {
+      throw new Error('Failed to save diet');
+    }
+
+    return {
+      id: row.id,
+      patientId: row.patient_id,
+      controlDate: row.control_date,
+      weekTitle: row.week_title,
+      sheet: JSON.parse(row.sheet_json) as SheetState,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  if (useSupabase && supabase) {
+    const upsertObj = {
+      patient_id: patientId,
+      control_date: controlDate,
+      week_title: normalizedWeekTitle,
+      sheet_json: serialized,
+    };
+    const { error: upsertError } = await supabase
+      .from('diets')
+      .upsert(upsertObj, { onConflict: 'patient_id,control_date,week_title' });
+    if (upsertError) throw upsertError;
+
+    const { data, error } = await supabase
+      .from('diets')
+      .select('id, patient_id, control_date, week_title, sheet_json, created_at, updated_at')
+      .eq('patient_id', patientId)
+      .eq('control_date', controlDate)
+      .eq('week_title', normalizedWeekTitle)
+      .limit(1)
+      .single();
+    if (error) throw error;
+    const row = data as any;
+    return {
+      id: row.id,
+      patientId: row.patient_id,
+      controlDate: row.control_date,
+      weekTitle: row.week_title,
+      sheet: JSON.parse(row.sheet_json) as SheetState,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  const db = getDb();
+  const serializedLocal = serialized;
 
   db.prepare(
     `INSERT INTO diets (patient_id, control_date, week_title, sheet_json)
@@ -241,7 +458,7 @@ export function saveDietForControlDate(
      DO UPDATE SET
        sheet_json = excluded.sheet_json,
        updated_at = CURRENT_TIMESTAMP`,
-  ).run(patientId, controlDate, normalizedWeekTitle, serialized);
+  ).run(patientId, controlDate, normalizedWeekTitle, serializedLocal);
 
   const row = db
     .prepare(
@@ -262,7 +479,28 @@ export function saveDietForControlDate(
   };
 }
 
-export function deleteDietForControlDate(patientId: number, controlDate: string, weekTitle: string) {
+export async function deleteDietForControlDate(patientId: number, controlDate: string, weekTitle: string) {
+  if (hasPostgresConnection) {
+    const result = await queryPostgres(
+      `DELETE FROM diets
+       WHERE patient_id = $1 AND control_date = $2 AND week_title = $3`,
+      [patientId, controlDate, weekTitle.trim()],
+    );
+
+    return Boolean(result && result.rowCount && result.rowCount > 0);
+  }
+
+  if (useSupabase && supabase) {
+    const { error } = await supabase
+      .from('diets')
+      .delete()
+      .eq('patient_id', patientId)
+      .eq('control_date', controlDate)
+      .eq('week_title', weekTitle.trim());
+    if (error) throw error;
+    return true;
+  }
+
   const db = getDb();
   const result = db
     .prepare(
@@ -274,7 +512,89 @@ export function deleteDietForControlDate(patientId: number, controlDate: string,
   return result.changes > 0;
 }
 
-export function getDietForControlDate(patientId: number, controlDate: string, weekTitle?: string) {
+export async function getDietForControlDate(patientId: number, controlDate: string, weekTitle?: string) {
+  if (hasPostgresConnection) {
+    const result = weekTitle
+      ? await queryPostgres<DietRow>(
+          `SELECT id, patient_id, control_date, week_title, sheet_json, created_at, updated_at
+           FROM diets
+           WHERE patient_id = $1 AND control_date = $2 AND week_title = $3
+           LIMIT 1`,
+          [patientId, controlDate, weekTitle.trim()],
+        )
+      : await queryPostgres<DietRow>(
+          `SELECT id, patient_id, control_date, week_title, sheet_json, created_at, updated_at
+           FROM diets
+           WHERE patient_id = $1 AND control_date = $2
+           ORDER BY updated_at DESC, id DESC
+           LIMIT 1`,
+          [patientId, controlDate],
+        );
+
+    const row = result?.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      patientId: row.patient_id,
+      controlDate: row.control_date,
+      weekTitle: row.week_title,
+      sheet: JSON.parse(row.sheet_json) as SheetState,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  if (useSupabase && supabase) {
+    if (weekTitle) {
+      const { data, error } = await supabase
+        .from('diets')
+        .select('id, patient_id, control_date, week_title, sheet_json, created_at, updated_at')
+        .eq('patient_id', patientId)
+        .eq('control_date', controlDate)
+        .eq('week_title', weekTitle.trim())
+        .limit(1)
+        .single();
+      if (error) {
+        if ((error as any).code === 'PGRST116') return null;
+        throw error;
+      }
+      const row = data as any;
+      if (!row) return null;
+      return {
+        id: row.id,
+        patientId: row.patient_id,
+        controlDate: row.control_date,
+        weekTitle: row.week_title,
+        sheet: JSON.parse(row.sheet_json) as SheetState,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    }
+
+    const { data, error } = await supabase
+      .from('diets')
+      .select('id, patient_id, control_date, week_title, sheet_json, created_at, updated_at')
+      .eq('patient_id', patientId)
+      .eq('control_date', controlDate)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    const row = (data && data[0]) as any | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      patientId: row.patient_id,
+      controlDate: row.control_date,
+      weekTitle: row.week_title,
+      sheet: JSON.parse(row.sheet_json) as SheetState,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   const db = getDb();
   const row = weekTitle
     ? (db
@@ -309,7 +629,32 @@ export function getDietForControlDate(patientId: number, controlDate: string, we
   };
 }
 
-export function listControlRecordsForPatient(patientId: number) {
+export async function listControlRecordsForPatient(patientId: number) {
+  if (hasPostgresConnection) {
+    const result = await queryPostgres<{ control_date: string; week_title: string }>(
+      `SELECT control_date, week_title
+       FROM diets
+       WHERE patient_id = $1
+       ORDER BY control_date DESC, created_at DESC, id DESC`,
+      [patientId],
+    );
+
+    return (result?.rows ?? []).map((row: { control_date: string; week_title: string }) => ({
+      controlDate: row.control_date,
+      weekTitle: row.week_title,
+    }));
+  }
+
+  if (useSupabase && supabase) {
+    const { data, error } = await supabase
+      .from('diets')
+      .select('control_date, week_title')
+      .eq('patient_id', patientId)
+      .order('control_date', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({ controlDate: row.control_date, weekTitle: row.week_title }));
+  }
+
   const db = getDb();
   const rows = db
     .prepare(

@@ -8,10 +8,15 @@
     "start": "next start",
     "lint": "eslint",
     "pdf:dev": "next dev -p 3001",
-    "pdf:generate": "node scripts/generate-pdf.js"
+    "pdf:generate": "node scripts/generate-pdf.js",
+    "migrate:supabase": "node scripts/migrate-sqlite-to-supabase.js",
+    "migrate:pg": "node scripts/migrate-sqlite-to-postgres.js",
+    "create:schema:pg": "node scripts/create-postgres-schema.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
+    "@supabase/supabase-js": "^2.30.0",
+    "pg": "^8.11.0",
     "next": "16.2.6",
     "puppeteer": "^24.43.1",
     "react": "19.2.4",

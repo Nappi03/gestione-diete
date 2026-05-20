@@ -25,11 +25,11 @@ export async function GET(request: Request) {
     }
 
     if (!controlDate) {
-      const controlRecords = listControlRecordsForPatient(patientId);
+      const controlRecords = await listControlRecordsForPatient(patientId);
       return Response.json({ controlRecords });
     }
 
-    const diet = getDietForControlDate(patientId, controlDate, weekTitle ?? undefined);
+    const diet = await getDietForControlDate(patientId, controlDate, weekTitle ?? undefined);
     return Response.json({ diet });
   } catch (error) {
     console.error('diets GET error', error);
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       return Response.json({ error: 'sheet is required' }, { status: 400 });
     }
 
-    const diet = saveDietForControlDate(patientId, controlDate, weekTitle, sheet);
+    const diet = await saveDietForControlDate(patientId, controlDate, weekTitle, sheet);
     return Response.json({ diet }, { status: 201 });
   } catch (error) {
     console.error('diets POST error', error);
@@ -93,7 +93,7 @@ export async function DELETE(request: Request) {
       return Response.json({ error: 'patientId must be a positive integer' }, { status: 400 });
     }
 
-    const deleted = deleteDietForControlDate(patientId, controlDate, weekTitle);
+    const deleted = await deleteDietForControlDate(patientId, controlDate, weekTitle);
     if (!deleted) {
       return Response.json({ error: 'Diet not found' }, { status: 404 });
     }

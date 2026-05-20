@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "next.config.ts", "use": "@vercel/next" }
+  ],
+  "routes": [
+    {
+      "src": "/api/generate-pdf",
+      "dest": "/api/generate-pdf"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/generate-pdf",
+      "destination": "/api/generate-pdf"
+    }
+  ]
+}

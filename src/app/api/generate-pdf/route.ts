@@ -9,6 +9,32 @@ type GeneratePdfPayload = {
 
 export async function POST(request: Request) {
   try {
+    // If a PDF generation service URL is provided, proxy the request to it.
+    const externalPdfUrl = process.env.PDF_SERVICE_URL;
+    const externalPdfKey = process.env.PDF_SERVICE_KEY;
+    if (externalPdfUrl) {
+      const forwarded = await fetch(externalPdfUrl, {
+        method: 'POST',
+        body: await request.clone().text(),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(externalPdfKey ? { Authorization: `Bearer ${externalPdfKey}` } : {}),
+        },
+      });
+
+      const buffer = await forwarded.arrayBuffer();
+      const contentType = forwarded.headers.get('content-type') ?? 'application/pdf';
+      const contentDisposition = forwarded.headers.get('content-disposition') ?? 'attachment; filename="dieta.pdf"';
+
+      return new Response(buffer as any, {
+        status: forwarded.status,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': contentDisposition,
+        },
+      });
+    }
+
     const url = new URL(request.url);
     const origin = `${url.protocol}//${url.host}`;
     const body = (await request.json()) as GeneratePdfPayload;
