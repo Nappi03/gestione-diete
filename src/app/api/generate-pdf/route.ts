@@ -76,3 +76,4 @@ function sanitizePdfFileName(value: string) {
 
   return sanitized.toLowerCase().endsWith('.pdf') ? sanitized : `${sanitized}.pdf`;
 }
+
