@@ -63,7 +63,7 @@ After migration, set the following env vars in Vercel:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-If you need the PDF generation to work on Vercel, host the Puppeteer-based service separately and set `PDF_SERVICE_URL` and `PDF_SERVICE_KEY`.
+PDF generation now runs inside the Next.js app through `/api/generate-pdf`, so no external PDF service is required on Vercel.
 
 Direct Postgres migration (no supabase-js)
 

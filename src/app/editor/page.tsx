@@ -339,7 +339,10 @@ export default function EditorPage() {
           fileName,
         }),
       });
-      if (!res.ok) throw new Error('PDF generation failed');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'PDF generation failed');
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
