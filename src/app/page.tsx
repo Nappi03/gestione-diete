@@ -14,8 +14,23 @@ export default function Home() {
   const [selectedPatientId, setSelectedPatientId] = useState<number | ''>('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [patientSearch, setPatientSearch] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const filteredPatients = useMemo(() => {
+    const query = patientSearch.trim().toLowerCase();
+    if (!query) {
+      return patients;
+    }
+
+    return patients.filter((patient) => {
+      const fullName = `${patient.lastName} ${patient.firstName}`.toLowerCase();
+      return fullName.includes(query)
+        || patient.firstName.toLowerCase().includes(query)
+        || patient.lastName.toLowerCase().includes(query)
+        || String(patient.id).includes(query);
+    });
+  }, [patientSearch, patients]);
 
   const showStatus = (message: string) => {
     setStatus(message);
@@ -95,6 +110,10 @@ export default function Home() {
             <h2 className="text-lg font-semibold text-slate-900">Pazienti salvati</h2>
             <p className="mt-1 text-sm text-slate-500">Seleziona un paziente per aprire l'editor.</p>
 
+            <div className="mt-4">
+              <LabeledInput label="Cerca paziente" value={patientSearch} onChange={setPatientSearch} placeholder="Nome, cognome" />
+            </div>
+
             <div className="mt-4 space-y-2">
               {patients.length === 0 ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
@@ -102,7 +121,13 @@ export default function Home() {
                 </div>
               ) : null}
 
-              {patients.map((patient) => {
+              {patients.length > 0 && filteredPatients.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  Nessun paziente corrispondente alla ricerca.
+                </div>
+              ) : null}
+
+              {filteredPatients.map((patient) => {
                 const active = selectedPatientId === patient.id;
                 return (
                   <button
@@ -115,7 +140,6 @@ export default function Home() {
                       <div className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-900">
                         {patient.lastName} {patient.firstName}
                       </div>
-                      <div className="text-xs text-slate-500">ID {patient.id}</div>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 ring-1 ring-slate-200">
                       Seleziona
@@ -177,10 +201,12 @@ function LabeledInput({
   label,
   value,
   onChange,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -188,6 +214,7 @@ function LabeledInput({
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
         className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm text-slate-900 outline-none transition shadow-sm focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
       />
     </label>

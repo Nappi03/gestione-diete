@@ -31,6 +31,21 @@ export default function PazientiPage() {
   const [editingPatient, setEditingPatient] = useState<EditingPatientState>(null);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [patientSearch, setPatientSearch] = useState("");
+  const filteredPatients = useMemo(() => {
+    const query = patientSearch.trim().toLowerCase();
+    if (!query) {
+      return patients;
+    }
+
+    return patients.filter((patient) => {
+      const fullName = `${patient.lastName} ${patient.firstName}`.toLowerCase();
+      return fullName.includes(query)
+        || patient.firstName.toLowerCase().includes(query)
+        || patient.lastName.toLowerCase().includes(query)
+        || String(patient.id).includes(query);
+    });
+  }, [patientSearch, patients]);
 
   const showStatus = (message: string) => {
     setStatus(message);
@@ -245,12 +260,24 @@ export default function PazientiPage() {
           </button>
         </section>
 
+        <section className="mb-6 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm ring-1 ring-slate-100">
+          <h2 className="text-lg font-semibold text-slate-900">Cerca paziente</h2>
+          <p className="mt-1 text-sm text-slate-500">Filtra l'archivio per nome, cognome.</p>
+          <div className="mt-3 max-w-xl">
+            <LabeledInput label="Ricerca" value={patientSearch} onChange={setPatientSearch} placeholder="Nome, cognome" />
+          </div>
+        </section>
+
         <section className="space-y-3">
           {patients.length === 0 ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Nessun paziente salvato.</div>
           ) : null}
 
-          {patients.map((patient) => {
+          {patients.length > 0 && filteredPatients.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Nessun paziente corrispondente alla ricerca.</div>
+          ) : null}
+
+          {filteredPatients.map((patient) => {
             const isOpen = openPatientIds.includes(patient.id);
             const records = controlRecordsByPatient[patient.id] ?? [];
             const isEditing = editingPatient?.id === patient.id;
@@ -277,7 +304,6 @@ export default function PazientiPage() {
                         <h3 className="text-base font-semibold uppercase tracking-[0.08em] text-slate-900">
                           {patient.lastName} {patient.firstName}
                         </h3>
-                        <p className="text-xs text-slate-500">ID paziente: {patient.id}</p>
                       </>
                     )}
                   </div>
@@ -388,10 +414,12 @@ function LabeledInput({
   label,
   value,
   onChange,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -399,6 +427,7 @@ function LabeledInput({
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
         className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm text-slate-900 outline-none transition shadow-sm placeholder:text-slate-300 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
       />
     </label>

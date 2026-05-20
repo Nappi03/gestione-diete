@@ -143,6 +143,31 @@ export const createInitialSheet = (): SheetState => ({
   ],
 });
 
+export const createEmptySheet = (): SheetState => ({
+  protocolTitle: "Protocollo IpoCalorico:",
+  weekTitle: "PRIMA SETTIMANA",
+  patientName: "",
+  topNote: "*dose giornaliera di sale max 5gr",
+  footerLine1: "Biologa Nutrizionista",
+  footerLine2: "Dott.ssa Nappi Maria",
+  fixedRow: {
+    colazione: "BEVI 4 BICCHIERI DI\nACQUA NATURALE\nPRIMA DI FARE COLAZIONE",
+    spuntino: "BEVI 2\nBICCHIERI DI\nACQUA",
+    pranzo: "BEVI 4\nBICCHIERI DI ACQUA\nNATURALE",
+    merenda: "BEVI 2 BICCHIERI\nDI ACQUA\nNATURALE",
+    cena: "BEVI 4\nBICCHIERI DI ACQUA\nNATURALE",
+  },
+  days: [
+    createDay("lunedi", "LUNEDÌ", { colazione: "", spuntino: "", pranzo: "", merenda: "", cena: "" }),
+    createDay("martedi", "MARTEDÌ", { colazione: "", spuntino: "", pranzo: "", merenda: "", cena: "" }),
+    createDay("mercoledi", "MERCOLEDÌ", { colazione: "", spuntino: "", pranzo: "", merenda: "", cena: "" }),
+    createDay("giovedi", "GIOVEDÌ", { colazione: "", spuntino: "", pranzo: "", merenda: "", cena: "" }),
+    createDay("venerdi", "VENERDÌ", { colazione: "", spuntino: "", pranzo: "", merenda: "", cena: "" }),
+    createDay("sabato", "SABATO", { colazione: "", spuntino: "", pranzo: "", merenda: "", cena: "" }),
+    createDay("domenica", "DOMENICA", { colazione: "", spuntino: "", pranzo: "", merenda: "", cena: "" }),
+  ],
+});
+
 export function fieldLabel(field: keyof MealColumns) {
   switch (field) {
     case "colazione":

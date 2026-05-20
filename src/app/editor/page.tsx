@@ -1,6 +1,6 @@
 "use client";
 
-import { createInitialSheet, SheetState, MealColumns, fieldLabel, mealFieldOrder } from "../../lib/sheet";
+import { createEmptySheet, SheetState, MealColumns, fieldLabel, mealFieldOrder } from "../../lib/sheet";
 import { PrintableSheet } from "../../components/Printable";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -18,10 +18,25 @@ type ControlRecord = {
 };
 
 export default function EditorPage() {
-  const [sheet, setSheet] = useState<SheetState>(() => createInitialSheet());
+  const [sheet, setSheet] = useState<SheetState>(() => createEmptySheet());
   const [viewMode, setViewMode] = useState<'split' | 'expanded'>('expanded');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [exportDialog, setExportDialog] = useState<{ visible: boolean; fileName: string }>({
+    visible: false,
+    fileName: '',
+  });
   const [hasPatientContext, setHasPatientContext] = useState(false);
+  const [modal, setModal] = useState<{
+    type: 'error' | 'success' | 'info';
+    title: string;
+    message: string;
+    visible: boolean;
+  }>({
+    type: 'info',
+    title: '',
+    message: '',
+    visible: false,
+  });
   const dayPanelStyles = [
     { card: 'bg-gradient-to-br from-sky-50 via-white to-sky-100/70 ring-sky-200/70', chip: 'bg-sky-100 text-sky-700', title: 'text-sky-900' },
     { card: 'bg-gradient-to-br from-emerald-50 via-white to-emerald-100/70 ring-emerald-200/70', chip: 'bg-emerald-100 text-emerald-700', title: 'text-emerald-900' },
@@ -38,6 +53,11 @@ export default function EditorPage() {
   const [selectedRecordKey, setSelectedRecordKey] = useState('');
   const selectedPatient = patients.find((patient) => patient.id === selectedPatientId) ?? null;
   const recordKey = (record: ControlRecord) => `${record.controlDate}__${record.weekTitle}`;
+
+  const showModal = (type: 'error' | 'success' | 'info', title: string, message: string) => {
+    setModal({ type, title, message, visible: true });
+    setTimeout(() => setModal((m) => ({ ...m, visible: false })), 3000);
+  };
 
   const toggleViewMode = () => setViewMode((m) => (m === 'split' ? 'expanded' : 'split'));
   const _toggleViewMode = () => {
@@ -129,14 +149,12 @@ export default function EditorPage() {
 
   const saveDietRecord = async () => {
     if (!selectedPatientId) {
-      setStatusMessage('Seleziona prima un paziente');
-      setTimeout(() => setStatusMessage(null), 2000);
+      showModal('error', 'Paziente non selezionato', 'Seleziona un paziente prima di salvare');
       return;
     }
 
     if (!controlDate) {
-      setStatusMessage('Inserisci la data controllo');
-      setTimeout(() => setStatusMessage(null), 2000);
+      showModal('error', 'Data non inserita', 'Inserisci la data di controllo prima di salvare');
       return;
     }
 
@@ -158,12 +176,10 @@ export default function EditorPage() {
 
       await loadControlRecords(selectedPatientId);
       setSelectedRecordKey(recordKey({ controlDate, weekTitle: sheet.weekTitle }));
-      setStatusMessage(`Dieta salvata (${formatItalianDate(controlDate)} - ${sheet.weekTitle})`);
-      setTimeout(() => setStatusMessage(null), 2200);
+      showModal('success', 'Dieta salvata', `${formatItalianDate(controlDate)} - ${sheet.weekTitle}`);
     } catch (error) {
       console.error(error);
-      setStatusMessage('Errore salvataggio dieta');
-      setTimeout(() => setStatusMessage(null), 2200);
+      showModal('error', 'Errore salvataggio', 'Impossibile salvare la dieta');
     }
   };
 
@@ -271,25 +287,49 @@ export default function EditorPage() {
     });
   }, [selectedPatientId, patients]);
 
-  const exportPdf = async () => {
+  const exportPdf = async (requestedName: string) => {
+    // Check if date is selected
+    if (!controlDate) {
+      setExportDialog({ visible: false, fileName: '' });
+      showModal('error', 'Data non selezionata', 'Seleziona una data di controllo prima di esportare il PDF');
+      return false;
+    }
+
+    // Check if patient is selected
+    if (!selectedPatientId) {
+      setExportDialog({ visible: false, fileName: '' });
+      showModal('error', 'Paziente non selezionato', 'Seleziona un paziente prima di esportare il PDF');
+      return false;
+    }
+
+    // First, save the diet
     try {
-      const requestedName = window.prompt(
-        'Con che nome vuoi salvare il PDF?',
-        buildPdfFilenamePreset({
+      const savRes = await fetch('/api/diets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientId: selectedPatientId,
           controlDate,
-          protocolTitle: sheet.protocolTitle,
           weekTitle: sheet.weekTitle,
-          patientName: selectedPatient?.lastName && selectedPatient?.firstName
-            ? `${selectedPatient.lastName} ${selectedPatient.firstName}`
-            : sheet.patientName,
+          sheet,
         }),
-      );
-      if (requestedName === null) {
-        setStatusMessage('Download annullato');
-        setTimeout(() => setStatusMessage(null), 1500);
-        return;
+      });
+
+      if (!savRes.ok) {
+        throw new Error('Failed to save diet');
       }
 
+      await loadControlRecords(selectedPatientId);
+      setSelectedRecordKey(recordKey({ controlDate, weekTitle: sheet.weekTitle }));
+    } catch (error) {
+      console.error(error);
+      setExportDialog({ visible: false, fileName: '' });
+      showModal('error', 'Errore salvataggio', 'Impossibile salvare la dieta prima di esportare il PDF');
+      return false;
+    }
+
+    // Then export PDF
+    try {
       const fileName = normalizePdfFileName(requestedName);
       const res = await fetch('/api/generate-pdf', {
         method: 'POST',
@@ -309,11 +349,12 @@ export default function EditorPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setStatusMessage(`Scaricato come ${fileName}`);
-      setTimeout(() => setStatusMessage(null), 2000);
+      return true;
     } catch (err) {
       console.error(err);
-      alert('Errore durante il download del PDF');
+      setExportDialog({ visible: false, fileName: '' });
+      showModal('error', 'Errore download', 'Errore durante il download del PDF');
+      return false;
     }
   };
 
@@ -322,6 +363,96 @@ export default function EditorPage() {
       {statusMessage ? (
         <div className="fixed top-4 right-4 z-50 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-slate-900/20 ring-1 ring-white/10">
           {statusMessage}
+        </div>
+      ) : null}
+
+      {modal.visible ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-white/60 bg-white/95 p-6 shadow-xl ring-1 ring-slate-200/60 backdrop-blur">
+            <div className="mb-4">
+              <div className={`mb-3 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] ring-1 ${
+                modal.type === 'error' ? 'bg-red-50 text-red-700 ring-red-100' :
+                modal.type === 'success' ? 'bg-emerald-50 text-emerald-700 ring-emerald-100' :
+                'bg-blue-50 text-blue-700 ring-blue-100'
+              }`}>
+                {modal.type === 'error' ? '⚠️ Errore' : modal.type === 'success' ? '✓ Successo' : 'ℹ️ Info'}
+              </div>
+              <h2 className="text-xl font-semibold text-slate-900">{modal.title}</h2>
+              <p className="mt-2 text-sm text-slate-600">{modal.message}</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setModal((m) => ({ ...m, visible: false }))}
+                className="flex-1 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {exportDialog.visible ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-[28px] border border-white/60 bg-white/95 p-8 shadow-[0_30px_90px_rgba(15,23,42,0.22)] ring-1 ring-slate-200/60 backdrop-blur">
+            <div className="mb-5">
+              <div className="mb-3 inline-flex items-center rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-sky-700 ring-1 ring-sky-100">
+                Esporta PDF
+              </div>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Scegli il nome del file</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500 sm:text-base">
+                Puoi modificare il nome suggerito prima di scaricare il PDF.
+              </p>
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Nome file</span>
+              <input
+                autoFocus
+                value={exportDialog.fileName}
+                onChange={(event) => setExportDialog((current) => ({ ...current, fileName: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setExportDialog({ visible: false, fileName: '' });
+                  }
+
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void exportPdf(exportDialog.fileName).then((success) => {
+                      if (success) {
+                        setExportDialog({ visible: false, fileName: '' });
+                      }
+                    });
+                  }
+                }}
+                className="w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-4 text-base text-slate-900 outline-none transition shadow-sm placeholder:text-slate-300 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+              />
+            </label>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setExportDialog({ visible: false, fileName: '' })}
+                className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void exportPdf(exportDialog.fileName).then((success) => {
+                    if (success) {
+                      setExportDialog({ visible: false, fileName: '' });
+                    }
+                  });
+                }}
+                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800"
+              >
+                Esporta
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -370,7 +501,19 @@ export default function EditorPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => { setStatusMessage('Generazione PDF...'); exportPdf().then(()=>setStatusMessage('Download avviato')).catch(()=>setStatusMessage('Errore generazione PDF')).finally(()=>setTimeout(()=>setStatusMessage(null),2000)); }}
+                  onClick={() => {
+                    setExportDialog({
+                      visible: true,
+                      fileName: buildPdfFilenamePreset({
+                        controlDate,
+                        protocolTitle: sheet.protocolTitle,
+                        weekTitle: sheet.weekTitle,
+                        patientName: selectedPatient?.lastName && selectedPatient?.firstName
+                          ? `${selectedPatient.lastName} ${selectedPatient.firstName}`
+                          : sheet.patientName,
+                      }),
+                    });
+                  }}
                   className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-800 focus:outline-none"
                 >
                   Esporta PDF
