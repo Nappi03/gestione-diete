@@ -2,7 +2,8 @@
 
 import { createEmptySheet, createInitialSheet, SheetState, MealColumns, fieldLabel, mealFieldOrder } from "../../lib/sheet";
 import { PrintableSheet } from "../../components/Printable";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { formatItalianDate } from "../../lib/date";
 
@@ -19,6 +20,8 @@ type ControlRecord = {
 
 export default function EditorPage() {
   const [sheet, setSheet] = useState<SheetState>(() => createEmptySheet());
+  const [isDietSaved, setIsDietSaved] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [viewMode, setViewMode] = useState<'split' | 'expanded'>('expanded');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [exportDialog, setExportDialog] = useState<{ visible: boolean; fileName: string }>({
@@ -70,6 +73,7 @@ export default function EditorPage() {
     key: K,
     value: SheetState[K],
   ) => {
+    setIsDietSaved(false);
     setSheet((current) => ({ ...current, [key]: value }));
   };
 
@@ -77,6 +81,7 @@ export default function EditorPage() {
     key: K,
     value: string,
   ) => {
+    setIsDietSaved(false);
     setSheet((current) => ({
       ...current,
       fixedRow: { ...current.fixedRow, [key]: value },
@@ -88,6 +93,7 @@ export default function EditorPage() {
     mealKey: keyof MealColumns,
     value: string,
   ) => {
+    setIsDietSaved(false);
     setSheet((current) => ({
       ...current,
       days: current.days.map((day) =>
@@ -143,6 +149,7 @@ export default function EditorPage() {
     }
 
     setSheet(data.diet.sheet);
+    setIsDietSaved(true);
     setSelectedRecordKey(recordKey({ controlDate: date, weekTitle: data.diet.sheet.weekTitle }));
     return true;
   };
@@ -176,6 +183,7 @@ export default function EditorPage() {
 
       await loadControlRecords(selectedPatientId);
       setSelectedRecordKey(recordKey({ controlDate, weekTitle: sheet.weekTitle }));
+      setIsDietSaved(true);
       showModal('success', 'Dieta salvata', `${formatItalianDate(controlDate)} - ${sheet.weekTitle}`);
     } catch (error) {
       console.error(error);
@@ -288,10 +296,13 @@ export default function EditorPage() {
   }, [selectedPatientId, patients]);
 
   const exportPdf = async (requestedName: string) => {
+    setIsExporting(true);
+
     // Check if date is selected
     if (!controlDate) {
       setExportDialog({ visible: false, fileName: '' });
       showModal('error', 'Data non selezionata', 'Seleziona una data di controllo prima di esportare il PDF');
+      setIsExporting(false);
       return false;
     }
 
@@ -299,6 +310,7 @@ export default function EditorPage() {
     if (!selectedPatientId) {
       setExportDialog({ visible: false, fileName: '' });
       showModal('error', 'Paziente non selezionato', 'Seleziona un paziente prima di esportare il PDF');
+      setIsExporting(false);
       return false;
     }
 
@@ -325,6 +337,7 @@ export default function EditorPage() {
       console.error(error);
       setExportDialog({ visible: false, fileName: '' });
       showModal('error', 'Errore salvataggio', 'Impossibile salvare la dieta prima di esportare il PDF');
+      setIsExporting(false);
       return false;
     }
 
@@ -358,6 +371,8 @@ export default function EditorPage() {
       setExportDialog({ visible: false, fileName: '' });
       showModal('error', 'Errore download', 'Errore durante il download del PDF');
       return false;
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -407,6 +422,15 @@ export default function EditorPage() {
               <p className="mt-2 text-sm leading-6 text-slate-500 sm:text-base">
                 Puoi modificare il nome suggerito prima di scaricare il PDF.
               </p>
+              {isExporting ? (
+                <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
+                  <svg className="h-4 w-4 animate-spin text-slate-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" className="opacity-20" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                  Generazione PDF in corso...
+                </div>
+              ) : null}
             </div>
 
             <label className="block">
@@ -437,6 +461,7 @@ export default function EditorPage() {
               <button
                 type="button"
                 onClick={() => setExportDialog({ visible: false, fileName: '' })}
+                disabled={isExporting}
                 className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
               >
                 Annulla
@@ -450,9 +475,20 @@ export default function EditorPage() {
                     }
                   });
                 }}
-                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800"
+                disabled={isExporting}
+                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none"
               >
-                Esporta
+                {isExporting ? (
+                  <span className="inline-flex items-center gap-2">
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" className="opacity-20" />
+                      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    Generando...
+                  </span>
+                ) : (
+                  'Esporta'
+                )}
               </button>
             </div>
           </div>
@@ -473,9 +509,6 @@ export default function EditorPage() {
               <Link href="/" className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 hover:bg-slate-800">
                 Vai alla home pazienti
               </Link>
-              <Link href="/pazienti" className="inline-flex items-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-                Apri archivio pazienti
-              </Link>
             </div>
           </div>
         </div>
@@ -494,14 +527,18 @@ export default function EditorPage() {
                 <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">Un editor più pulito, con spazi aria e una preview pensata per lavorare meglio sui dettagli.</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Link href="/" className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 hover:bg-slate-50">
-                    Cambia paziente
-                  </Link>
-                  <Link href="/pazienti" className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 hover:bg-slate-50">
                     Archivio pazienti
                   </Link>
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={saveDietRecord}
+                  className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none"
+                >
+                  Salva dieta
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -517,7 +554,9 @@ export default function EditorPage() {
                       }),
                     });
                   }}
-                  className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-800 focus:outline-none"
+                  disabled={!isDietSaved}
+                  title={isDietSaved ? 'Esporta PDF' : 'Salva prima la dieta per esportare il PDF'}
+                  className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-800 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:translate-y-0 disabled:hover:bg-slate-300"
                 >
                   Esporta PDF
                 </button>
@@ -536,21 +575,10 @@ export default function EditorPage() {
               <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-indigo-50/80 via-white to-sky-50/60 p-5 shadow-sm ring-1 ring-slate-100">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 shadow-[0_0_0_5px_rgba(99,102,241,0.14)]" />
-                  <h2 className="text-lg font-semibold text-slate-900">Paziente e controllo</h2>
+                  <h2 className="text-lg font-semibold text-slate-900">Controllo</h2>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <LabeledSelect
-                    label="Paziente"
-                    value={selectedPatientId === '' ? '' : String(selectedPatientId)}
-                    options={patients.map((patient) => ({
-                      value: String(patient.id),
-                      label: `${patient.lastName} ${patient.firstName}`,
-                    }))}
-                    placeholder="Seleziona paziente"
-                    onChange={(value) => setSelectedPatientId(value ? Number(value) : '')}
-                  />
-
+                <div className="grid gap-3 sm:grid-cols-2 items-end">
                   <label className="block">
                     <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Data controllo</span>
                     <input
@@ -560,30 +588,8 @@ export default function EditorPage() {
                       className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm text-slate-900 outline-none transition shadow-sm focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
                     />
                   </label>
-                </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={saveDietRecord}
-                    className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none"
-                  >
-                    Salva dieta per data
-                  </button>
-                  <button
-                    type="button"
-                    onClick={loadDietRecord}
-                    className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none"
-                  >
-                    Carica dieta della data
-                  </button>
-                  <Link href="/pazienti" className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100">
-                    Gestisci pazienti
-                  </Link>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <LabeledSelect
+                  <SearchableSelect
                     label="Diete salvate"
                     value={selectedRecordKey}
                     options={controlRecords.map((record) => ({
@@ -591,16 +597,12 @@ export default function EditorPage() {
                       label: `${formatItalianDate(record.controlDate)} - ${record.weekTitle}`,
                     }))}
                     placeholder={selectedPatientId ? 'Seleziona una dieta salvata' : 'Seleziona prima un paziente'}
+                    disabled={!selectedPatientId}
                     onChange={(value) => {
                       setSelectedRecordKey(value);
                       const record = controlRecords.find((item) => recordKey(item) === value);
-                      if (!record) {
-                        return;
-                      }
-
-                      if (!selectedPatientId) {
-                        return;
-                      }
+                      if (!record) return;
+                      if (!selectedPatientId) return;
 
                       setControlDate(record.controlDate);
                       updateSheet('weekTitle', record.weekTitle);
@@ -611,11 +613,6 @@ export default function EditorPage() {
                       });
                     }}
                   />
-                  <div className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-600">
-                    {selectedPatientId
-                      ? `Diete salvate: ${controlRecords.length}`
-                      : 'Seleziona un paziente per vedere lo storico delle date'}
-                  </div>
                 </div>
               </div>
 
@@ -627,7 +624,12 @@ export default function EditorPage() {
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <LabeledInput label="Protocollo" value={sheet.protocolTitle} onChange={(value) => updateSheet("protocolTitle", value)} />
                   <LabeledInput label="Titolo settimana" value={sheet.weekTitle} onChange={(value) => updateSheet("weekTitle", value)} />
-                  <LabeledInput label="Paziente" value={sheet.patientName} onChange={(value) => updateSheet("patientName", value)} />
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Paziente</span>
+                    <div className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm text-slate-900 outline-none transition shadow-sm">{sheet.patientName}</div>
+                  </label>
+
                   <LabeledInput label="Nota in alto a destra" value={sheet.topNote} onChange={(value) => updateSheet("topNote", value)} />
                   <LabeledInput label="Firma riga 1" value={sheet.footerLine1} onChange={(value) => updateSheet("footerLine1", value)} />
                   <LabeledInput label="Firma riga 2" value={sheet.footerLine2} onChange={(value) => updateSheet("footerLine2", value)} />
@@ -776,6 +778,99 @@ function LabeledSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+function SearchableSelect({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  placeholder: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const filtered = options.filter((o) => o.label.toLowerCase().includes(filter.toLowerCase()));
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (inputRef.current && inputRef.current.contains(t)) return;
+      if (dropdownRef.current && dropdownRef.current.contains(t)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      if (!inputRef.current) return;
+      const r = inputRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + window.scrollY, left: r.left + window.scrollX, width: r.width });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
+  const selectedLabel = options.find((o) => o.value === value)?.label || '';
+
+  return (
+    <div>
+      <label className="block">
+        <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
+        <input
+          ref={inputRef}
+          disabled={disabled}
+          value={open ? filter : selectedLabel}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => { setFilter(e.target.value); setOpen(true); }}
+          placeholder={placeholder}
+          className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm text-slate-900 outline-none transition shadow-sm placeholder:text-slate-300 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+        />
+      </label>
+      {open && !disabled && pos ? createPortal(
+        <div
+          ref={dropdownRef}
+          style={{ position: 'absolute', top: pos.top, left: pos.left, width: pos.width }}
+          className="z-50 mt-0 max-h-48 overflow-auto rounded-xl border bg-white py-2 shadow-lg"
+        >
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-slate-500">Nessuna corrispondenza</div>
+          ) : (
+            filtered.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => { onChange(opt.value); setFilter(''); setOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50"
+              >
+                {opt.label}
+              </button>
+            ))
+          )}
+        </div>,
+        document.body,
+      ) : null}
+    </div>
   );
 }
 
