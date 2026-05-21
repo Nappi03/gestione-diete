@@ -42,3 +42,5 @@ next-env.d.ts
 
 # local app data
 /data/
+
+dist-electron/

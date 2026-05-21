@@ -1,8 +1,8 @@
 "use client";
 
-import { createEmptySheet, createInitialSheet, SheetState, MealColumns, fieldLabel, mealFieldOrder } from "../../lib/sheet";
+import { createEmptySheet, SheetState, MealColumns, fieldLabel, mealFieldOrder } from "../../lib/sheet";
 import { PrintableSheet } from "../../components/Printable";
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { formatItalianDate } from "../../lib/date";
@@ -17,6 +17,10 @@ type ControlRecord = {
   controlDate: string;
   weekTitle: string;
 };
+
+function recordKey(record: ControlRecord) {
+  return `${record.controlDate}__${record.weekTitle}`;
+}
 
 export default function EditorPage() {
   const [sheet, setSheet] = useState<SheetState>(() => createEmptySheet());
@@ -55,7 +59,6 @@ export default function EditorPage() {
   const [controlRecords, setControlRecords] = useState<ControlRecord[]>([]);
   const [selectedRecordKey, setSelectedRecordKey] = useState('');
   const selectedPatient = patients.find((patient) => patient.id === selectedPatientId) ?? null;
-  const recordKey = (record: ControlRecord) => `${record.controlDate}__${record.weekTitle}`;
 
   const showModal = (type: 'error' | 'success' | 'info', title: string, message: string) => {
     setModal({ type, title, message, visible: true });
@@ -107,9 +110,7 @@ export default function EditorPage() {
     }));
   };
 
-  const resetExample = () => setSheet(createInitialSheet());
-
-  const loadPatients = async () => {
+  const loadPatients = useCallback(async () => {
     const res = await fetch('/api/patients', { cache: 'no-store' });
     if (!res.ok) {
       throw new Error('Failed to load patients');
@@ -118,9 +119,9 @@ export default function EditorPage() {
     const data = (await res.json()) as { patients: Patient[] };
     setPatients(data.patients);
     return data.patients;
-  };
+  }, []);
 
-  const loadControlRecords = async (patientId: number) => {
+  const loadControlRecords = useCallback(async (patientId: number) => {
     const res = await fetch(`/api/diets?patientId=${patientId}`, { cache: 'no-store' });
     if (!res.ok) {
       throw new Error('Failed to load control records');
@@ -128,9 +129,9 @@ export default function EditorPage() {
 
     const data = (await res.json()) as { controlRecords: ControlRecord[] };
     setControlRecords(data.controlRecords);
-  };
+  }, []);
 
-  const loadDietRecordByRecord = async (patientId: number, date: string, weekTitle?: string) => {
+  const loadDietRecordByRecord = useCallback(async (patientId: number, date: string, weekTitle?: string) => {
     const query = new URLSearchParams({
       patientId: String(patientId),
       controlDate: date,
@@ -152,7 +153,7 @@ export default function EditorPage() {
     setIsDietSaved(true);
     setSelectedRecordKey(recordKey({ controlDate: date, weekTitle: data.diet.sheet.weekTitle }));
     return true;
-  };
+  }, []);
 
   const saveDietRecord = async () => {
     if (!selectedPatientId) {
@@ -191,37 +192,17 @@ export default function EditorPage() {
     }
   };
 
-  const loadDietRecord = async () => {
-    if (!selectedPatientId || !controlDate) {
-      setStatusMessage('Seleziona paziente e data');
-      setTimeout(() => setStatusMessage(null), 2000);
-      return;
-    }
-
-    try {
-      const loaded = await loadDietRecordByRecord(selectedPatientId, controlDate, sheet.weekTitle);
-      if (!loaded) {
-        setStatusMessage(`Nessuna dieta per ${formatItalianDate(controlDate)} e ${sheet.weekTitle}`);
-        setTimeout(() => setStatusMessage(null), 2200);
-        return;
-      }
-
-      setStatusMessage(`Dieta caricata (${formatItalianDate(controlDate)} - ${sheet.weekTitle})`);
-      setTimeout(() => setStatusMessage(null), 2200);
-    } catch (error) {
-      console.error(error);
-      setStatusMessage('Errore caricamento dieta');
-      setTimeout(() => setStatusMessage(null), 2200);
-    }
-  };
-
   useEffect(() => {
-    void loadPatients().catch((error) => {
-      console.error(error);
-      setStatusMessage('Errore caricamento pazienti');
-      setTimeout(() => setStatusMessage(null), 2200);
-    });
-  }, []);
+    const timer = window.setTimeout(() => {
+      void loadPatients().catch((error) => {
+        console.error(error);
+        setStatusMessage('Errore caricamento pazienti');
+        setTimeout(() => setStatusMessage(null), 2200);
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadPatients]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -230,70 +211,78 @@ export default function EditorPage() {
     const weekTitleFromQuery = params.get('weekTitle');
     const isNewDietFromQuery = params.get('new') === '1';
 
-    if (!Number.isInteger(patientIdFromQuery) || patientIdFromQuery <= 0) {
-      setHasPatientContext(false);
-      return;
-    }
-
-    setHasPatientContext(true);
-
-    if (!patients.length) {
-      return;
-    }
-
-    if (Number.isInteger(patientIdFromQuery) && patientIdFromQuery > 0) {
-      const exists = patients.some((patient) => patient.id === patientIdFromQuery);
-      if (exists && patientIdFromQuery !== selectedPatientId) {
-        setSelectedPatientId(patientIdFromQuery);
+    const timer = window.setTimeout(() => {
+      if (!Number.isInteger(patientIdFromQuery) || patientIdFromQuery <= 0) {
+        setHasPatientContext(false);
+        return;
       }
 
-      if (controlDateFromQuery) {
-        setControlDate(controlDateFromQuery);
-        if (weekTitleFromQuery && !isNewDietFromQuery) {
-          void loadDietRecordByRecord(patientIdFromQuery, controlDateFromQuery, weekTitleFromQuery).then((loaded) => {
-            if (!loaded) {
-              setStatusMessage(`Nessuna dieta per ${formatItalianDate(controlDateFromQuery)} e ${weekTitleFromQuery}`);
+      setHasPatientContext(true);
+
+      if (!patients.length) {
+        return;
+      }
+
+      if (Number.isInteger(patientIdFromQuery) && patientIdFromQuery > 0) {
+        const exists = patients.some((patient) => patient.id === patientIdFromQuery);
+        if (exists && patientIdFromQuery !== selectedPatientId) {
+          setSelectedPatientId(patientIdFromQuery);
+        }
+
+        if (controlDateFromQuery) {
+          setControlDate(controlDateFromQuery);
+          if (weekTitleFromQuery && !isNewDietFromQuery) {
+            void loadDietRecordByRecord(patientIdFromQuery, controlDateFromQuery, weekTitleFromQuery).then((loaded) => {
+              if (!loaded) {
+                setStatusMessage(`Nessuna dieta per ${formatItalianDate(controlDateFromQuery)} e ${weekTitleFromQuery}`);
+                setTimeout(() => setStatusMessage(null), 2200);
+              }
+            }).catch((error) => {
+              console.error(error);
+              setStatusMessage('Errore caricamento dieta da link');
               setTimeout(() => setStatusMessage(null), 2200);
-            }
-          }).catch((error) => {
-            console.error(error);
-            setStatusMessage('Errore caricamento dieta da link');
-            setTimeout(() => setStatusMessage(null), 2200);
-          });
-        } else if (!isNewDietFromQuery) {
-          void loadDietRecordByRecord(patientIdFromQuery, controlDateFromQuery).then((loaded) => {
-            if (!loaded) {
-              setStatusMessage(`Nessuna dieta per ${formatItalianDate(controlDateFromQuery)}`);
+            });
+          } else if (!isNewDietFromQuery) {
+            void loadDietRecordByRecord(patientIdFromQuery, controlDateFromQuery).then((loaded) => {
+              if (!loaded) {
+                setStatusMessage(`Nessuna dieta per ${formatItalianDate(controlDateFromQuery)}`);
+                setTimeout(() => setStatusMessage(null), 2200);
+              }
+            }).catch((error) => {
+              console.error(error);
+              setStatusMessage('Errore caricamento dieta da link');
               setTimeout(() => setStatusMessage(null), 2200);
-            }
-          }).catch((error) => {
-            console.error(error);
-            setStatusMessage('Errore caricamento dieta da link');
-            setTimeout(() => setStatusMessage(null), 2200);
-          });
+            });
+          }
         }
       }
-    }
-  }, [patients, selectedPatientId]);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [patients, selectedPatientId, loadDietRecordByRecord]);
 
   useEffect(() => {
-    if (!selectedPatientId) {
-      setControlRecords([]);
-      setSelectedRecordKey('');
-      return;
-    }
+    const timer = window.setTimeout(() => {
+      if (!selectedPatientId) {
+        setControlRecords([]);
+        setSelectedRecordKey('');
+        return;
+      }
 
-    const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
-    if (selectedPatient) {
-      updateSheet('patientName', `${selectedPatient.firstName} ${selectedPatient.lastName}`.toUpperCase());
-    }
+      const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
+      if (selectedPatient) {
+        updateSheet('patientName', `${selectedPatient.firstName} ${selectedPatient.lastName}`.toUpperCase());
+      }
 
-    void loadControlRecords(selectedPatientId).catch((error) => {
-      console.error(error);
-      setStatusMessage('Errore caricamento controlli');
-      setTimeout(() => setStatusMessage(null), 2200);
-    });
-  }, [selectedPatientId, patients]);
+      void loadControlRecords(selectedPatientId).catch((error) => {
+        console.error(error);
+        setStatusMessage('Errore caricamento controlli');
+        setTimeout(() => setStatusMessage(null), 2200);
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [selectedPatientId, patients, loadControlRecords]);
 
   const exportPdf = async (requestedName: string) => {
     setIsExporting(true);
@@ -341,9 +330,29 @@ export default function EditorPage() {
       return false;
     }
 
-    // Then export PDF
+    const fileName = normalizePdfFileName(requestedName);
+
     try {
-      const fileName = normalizePdfFileName(requestedName);
+      const desktopApi = typeof window !== 'undefined'
+        ? (window as Window & {
+            desktopApp?: {
+              isElectron?: boolean;
+              exportPdf?: (payload: { sheet: SheetState; fileName: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string }>;
+            };
+          }).desktopApp
+        : undefined;
+
+      if (desktopApi?.isElectron && desktopApi.exportPdf) {
+        const result = await desktopApi.exportPdf({ sheet, fileName });
+        if (result?.canceled) {
+          return false;
+        }
+        if (!result?.ok) {
+          throw new Error('Desktop PDF export failed');
+        }
+        return true;
+      }
+
       const res = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -420,7 +429,7 @@ export default function EditorPage() {
               </div>
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Scegli il nome del file</h2>
               <p className="mt-2 text-sm leading-6 text-slate-500 sm:text-base">
-                Puoi modificare il nome suggerito prima di scaricare il PDF.
+                Puoi modificare il nome suggerito prima di scaricare il PDF. Su desktop potrai anche scegliere la cartella di destinazione.
               </p>
               {isExporting ? (
                 <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
@@ -503,7 +512,7 @@ export default function EditorPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Prima seleziona o crea un paziente</h1>
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-              L'editor si apre solo dopo aver scelto un paziente dalla home oppure dalla pagina archivio.
+              L&apos;editor si apre solo dopo aver scelto un paziente dalla home oppure dalla pagina archivio.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
               <Link href="/" className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 hover:bg-slate-800">
@@ -745,38 +754,6 @@ function LabeledTextarea({
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm leading-6 text-slate-900 outline-none transition shadow-sm focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
       />
-    </label>
-  );
-}
-
-function LabeledSelect({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-  placeholder: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm text-slate-900 outline-none transition shadow-sm focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-      >
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
     </label>
   );
 }

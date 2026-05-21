@@ -1,11 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import Database from 'better-sqlite3';
 import { supabase, useSupabase } from './supabaseClient';
 import type { SheetState } from './sheet';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { Pool } = require('pg') as any;
+
+type SqliteDatabase = {
+  exec: (sql: string) => void;
+  prepare: (sql: string) => any;
+  transaction: (fn: (...args: any[]) => any) => (...args: any[]) => any;
+};
 
 type PatientRow = {
   id: number;
@@ -24,7 +29,7 @@ type DietRow = {
   updated_at: string;
 };
 
-const globalForDb = globalThis as unknown as { dietDb?: Database.Database };
+const globalForDb = globalThis as unknown as { dietDb?: SqliteDatabase };
 const globalForPg = globalThis as unknown as { dietPgPool?: any };
 
 const hasPostgresConnection = Boolean(process.env.DATABASE_URL);
@@ -93,7 +98,7 @@ function getDatabasePath() {
   return path.join(dataDir, 'diet-studio.db');
 }
 
-function initSchema(db: Database.Database) {
+function initSchema(db: SqliteDatabase) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -122,7 +127,7 @@ function initSchema(db: Database.Database) {
   `);
 }
 
-function ensureDietWeekColumn(db: Database.Database) {
+function ensureDietWeekColumn(db: SqliteDatabase) {
   const dietColumns = db.prepare(`PRAGMA table_info(diets)`).all() as Array<{ name: string }>;
   if (dietColumns.some((column) => column.name === 'week_title')) {
     return;
@@ -192,7 +197,7 @@ function ensureDietWeekColumn(db: Database.Database) {
   db.exec(`DROP TABLE diets_legacy;`);
 }
 
-function ensureSchema(db: Database.Database) {
+function ensureSchema(db: SqliteDatabase) {
   initSchema(db);
   ensureDietWeekColumn(db);
 }
@@ -200,6 +205,8 @@ function ensureSchema(db: Database.Database) {
 export function getDb() {
   if (!globalForDb.dietDb) {
     const dbPath = getDatabasePath();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Database = require('better-sqlite3') as new (filePath: string) => SqliteDatabase;
     const db = new Database(dbPath);
     globalForDb.dietDb = db;
   }

@@ -2,10 +2,15 @@
   "name": "gestione-diete",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "desktop": "electron .",
+    "electron:dev": "electron .",
+    "electron:build": "npm run build && electron-builder",
+    "dist": "electron-builder",
     "lint": "eslint",
     "pdf:dev": "next dev -p 3001",
     "pdf:generate": "node scripts/generate-pdf.js",
@@ -15,10 +20,10 @@
   },
   "dependencies": {
     "@sparticuz/chromium": "^126.0.0",
-    "better-sqlite3": "^12.10.0",
     "@supabase/supabase-js": "^2.30.0",
-    "pg": "^8.11.0",
+    "better-sqlite3": "^12.10.0",
     "next": "16.2.6",
+    "pg": "^8.11.0",
     "puppeteer": "^24.43.1",
     "puppeteer-core": "^24.43.1",
     "react": "19.2.4",
@@ -30,9 +35,43 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^37.10.3",
+    "electron-builder": "^26.8.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "build": {
+    "appId": "it.gestione.diete",
+    "productName": "Gestione Diete",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": ["portable"],
+      "signAndEditExecutable": false
+    },
+    "artifactName": "${productName}-${version}.${ext}",
+    "files": [
+      "electron/**/*",
+      ".next/**/*",
+      ".env*",
+      ".ENV",
+      "public/**/*",
+      "src/**/*",
+      "scripts/**/*",
+      "data/**/*",
+      "package.json",
+      "next.config.ts",
+      "postcss.config.mjs",
+      "eslint.config.mjs",
+      "tsconfig.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    }
   }
 }

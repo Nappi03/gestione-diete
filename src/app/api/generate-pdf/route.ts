@@ -32,9 +32,9 @@ export async function POST(request: Request) {
         margin: { top: '20mm', bottom: '20mm', left: '20mm', right: '20mm' },
       });
 
-      const arrayBuffer = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength);
+      const arrayBuffer = Buffer.from(pdf);
 
-      return new Response(arrayBuffer as any, {
+      return new Response(arrayBuffer, {
         status: 200,
         headers: {
           'Content-Type': 'application/pdf',
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
 }
 
 async function launchPdfBrowser() {
-  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
+  if ((process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') && !process.versions.electron) {
     const chromiumModule = await import('@sparticuz/chromium');
     const puppeteerCore = await import('puppeteer-core');
     const chromium = chromiumModule.default;
